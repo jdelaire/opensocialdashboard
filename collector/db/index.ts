@@ -100,6 +100,22 @@ export function listSnapshotsForAccount(
     .all(accountId, limitDays) as SnapshotRecord[];
 }
 
+export function listSnapshotsForAccountSince(
+  db: Database.Database,
+  accountId: string,
+  startDate: string
+): SnapshotRecord[] {
+  return db
+    .prepare(
+      `SELECT id, account_id, date, followers, method, confidence, status,
+              error_code, error_message, raw_excerpt, collected_at
+       FROM snapshots
+       WHERE account_id = ? AND date >= ?
+       ORDER BY date ASC`
+    )
+    .all(accountId, startDate) as SnapshotRecord[];
+}
+
 export function getLatestSnapshot(db: Database.Database, accountId: string): SnapshotRecord | undefined {
   return db
     .prepare(

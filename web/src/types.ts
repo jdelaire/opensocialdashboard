@@ -40,6 +40,30 @@ export interface AccountsResponse {
   failed_today: AccountOverviewRow[];
 }
 
+export interface ComparisonSeries {
+  account_id: string;
+  label: string;
+  platform: string;
+  followers_key: string;
+  index_key: string;
+  latest_followers: number | null;
+  delta: number | null;
+  pct_change: number | null;
+}
+
+export interface ComparisonPoint {
+  date: string;
+  [key: string]: string | number | null;
+}
+
+export interface ComparisonResponse {
+  days: number;
+  start_date: string;
+  end_date: string;
+  points: ComparisonPoint[];
+  series: ComparisonSeries[];
+}
+
 export interface AccountSnapshotsResponse {
   account: {
     id: string;

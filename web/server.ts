@@ -7,6 +7,7 @@ import {
   initDb,
   listAccounts,
   listSnapshotsForAccount,
+  listSnapshotsForAccountSince,
   syncAccounts
 } from "../collector/db/index.js";
 import { loadAccountsConfig } from "../collector/config.js";
@@ -140,6 +141,97 @@ function computeBestWorst(snapshotsAsc: SnapshotRecord[]): {
 
   return { best_day: best, worst_day: worst };
 }
+
+function validFollowerValue(snapshot: SnapshotRecord | undefined): number | null {
+  if (!snapshot || snapshot.status !== "ok" || snapshot.followers === null) {
+    return null;
+  }
+  return snapshot.followers;
+}
+
+function comparisonKey(accountId: string, index: number): string {
+  const normalized = accountId.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase();
+  return normalized ? `${normalized}_${index}` : `account_${index}`;
+}
+
+app.get("/api/comparison", (req, res) => {
+  const db = initDb();
+  try {
+    const configAccounts = loadAccountsConfig();
+    syncAccounts(db, configAccounts);
+
+    const days = parseDays(req.query.days as string | undefined);
+    const endDate = bangkokDate();
+    const startDate = bangkokDateMinusDays(endDate, days - 1);
+    const dates = Array.from({ length: days }, (_, index) => bangkokDateMinusDays(endDate, days - index - 1));
+
+    const points = dates.map((date) => ({ date })) as Array<Record<string, number | string | null>>;
+    const series = listAccounts(db)
+      .map((account, index) => {
+        const key = comparisonKey(account.id, index);
+        const followersKey = `${key}_followers`;
+        const indexKey = `${key}_index`;
+        const startSnapshot = getSnapshotOnOrBefore(db, account.id, startDate);
+        const rangeSnapshots = listSnapshotsForAccountSince(db, account.id, startDate);
+        const snapshotsByDate = new Map(rangeSnapshots.map((snapshot) => [snapshot.date, snapshot]));
+
+        let currentFollowers = validFollowerValue(startSnapshot);
+        let baselineFollowers = currentFollowers;
+
+        for (const [pointIndex, date] of dates.entries()) {
+          const snapshot = snapshotsByDate.get(date);
+          const nextFollowers = validFollowerValue(snapshot);
+
+          if (nextFollowers !== null) {
+            currentFollowers = nextFollowers;
+            baselineFollowers ??= nextFollowers;
+          }
+
+          const point = points[pointIndex];
+          if (point) {
+            point[followersKey] = currentFollowers;
+            point[indexKey] =
+              currentFollowers !== null && baselineFollowers !== null && baselineFollowers > 0
+                ? Number(((currentFollowers / baselineFollowers) * 100).toFixed(2))
+                : null;
+          }
+        }
+
+        const latestFollowers = currentFollowers;
+        const delta = latestFollowers !== null && baselineFollowers !== null ? latestFollowers - baselineFollowers : null;
+        const pctChange = delta !== null && baselineFollowers !== null && baselineFollowers > 0 ? delta / baselineFollowers : null;
+
+        return {
+          account_id: account.id,
+          label: account.label,
+          platform: account.platform,
+          followers_key: followersKey,
+          index_key: indexKey,
+          latest_followers: latestFollowers,
+          delta,
+          pct_change: pctChange
+        };
+      })
+      .filter((item) => item.latest_followers !== null)
+      .sort((a, b) => {
+        const pctDelta = (b.pct_change ?? Number.NEGATIVE_INFINITY) - (a.pct_change ?? Number.NEGATIVE_INFINITY);
+        if (pctDelta !== 0) {
+          return pctDelta;
+        }
+        return (b.latest_followers ?? Number.NEGATIVE_INFINITY) - (a.latest_followers ?? Number.NEGATIVE_INFINITY);
+      });
+
+    res.json({
+      days,
+      start_date: startDate,
+      end_date: endDate,
+      points,
+      series
+    });
+  } finally {
+    db.close();
+  }
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

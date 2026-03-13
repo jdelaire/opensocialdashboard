@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { ComparisonCharts } from "../components/ComparisonCharts.js";
 import { PlatformIcon } from "../components/PlatformIcon.js";
-import { AccountOverviewRow, AccountsResponse } from "../types.js";
+import { AccountOverviewRow, AccountsResponse, ComparisonResponse } from "../types.js";
 
 function formatDelta(value: number | null): string {
   if (value === null) {
@@ -11,6 +12,15 @@ function formatDelta(value: number | null): string {
     return `+${value.toLocaleString()}`;
   }
   return value.toLocaleString();
+}
+
+function formatPct(value: number | null): string {
+  if (value === null) {
+    return "-";
+  }
+
+  const pct = value * 100;
+  return `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`;
 }
 
 function deltaClass(value: number | null): string {
@@ -59,8 +69,12 @@ function extractAccountName(url: string): string | null {
 
 export function OverviewPage(): JSX.Element {
   const [data, setData] = useState<AccountsResponse | null>(null);
+  const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
+  const [comparisonDays, setComparisonDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedInitialComparison = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,14 +84,28 @@ export function OverviewPage(): JSX.Element {
       setError(null);
 
       try {
-        const response = await fetch("/api/accounts");
-        if (!response.ok) {
-          throw new Error(`API returned ${response.status}`);
+        const [accountsResponse, comparisonResponse] = await Promise.all([
+          fetch("/api/accounts"),
+          fetch(`/api/comparison?days=${comparisonDays}`)
+        ]);
+
+        if (!accountsResponse.ok) {
+          throw new Error(`Accounts API returned ${accountsResponse.status}`);
         }
 
-        const payload = (await response.json()) as AccountsResponse;
+        if (!comparisonResponse.ok) {
+          throw new Error(`Comparison API returned ${comparisonResponse.status}`);
+        }
+
+        const [accountsPayload, comparisonPayload] = (await Promise.all([
+          accountsResponse.json(),
+          comparisonResponse.json()
+        ])) as [AccountsResponse, ComparisonResponse];
+
         if (!cancelled) {
-          setData(payload);
+          setData(accountsPayload);
+          setComparison(comparisonPayload);
+          hasLoadedInitialComparison.current = true;
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -96,6 +124,44 @@ export function OverviewPage(): JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasLoadedInitialComparison.current) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadComparison(): Promise<void> {
+      setComparisonLoading(true);
+
+      try {
+        const response = await fetch(`/api/comparison?days=${comparisonDays}`);
+        if (!response.ok) {
+          throw new Error(`Comparison API returned ${response.status}`);
+        }
+
+        const payload = (await response.json()) as ComparisonResponse;
+        if (!cancelled) {
+          setComparison(payload);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load comparison");
+        }
+      } finally {
+        if (!cancelled) {
+          setComparisonLoading(false);
+        }
+      }
+    }
+
+    void loadComparison();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [comparisonDays]);
 
   const sortedAccounts = useMemo(() => {
     const rows = data?.accounts ?? [];
@@ -179,7 +245,7 @@ export function OverviewPage(): JSX.Element {
                 <th>Latest Followers</th>
                 <th>1d Delta</th>
                 <th>7d Delta</th>
-                <th>Last Status</th>
+                <th>7d %</th>
               </tr>
             </thead>
             <tbody>
@@ -194,17 +260,19 @@ export function OverviewPage(): JSX.Element {
                           <Link className="account-link" to={`/accounts/${row.account.id}`}>
                             {row.account.label}
                           </Link>
-                          <div className="account-secondary">{extractAccountName(row.account.url) ?? row.account.id}</div>
+                          <div className="account-secondary account-meta-row">
+                            <span>{extractAccountName(row.account.url) ?? row.account.id}</span>
+                            <span className={`status-dot ${statusClass(lastStatus)}`} aria-hidden="true" />
+                            {lastStatus !== "ok" ? <span className={`inline-status inline-status-${lastStatus}`}>{lastStatus}</span> : null}
+                            {row.latest?.error_code && lastStatus !== "ok" ? <span className="inline-error">{row.latest.error_code}</span> : null}
+                          </div>
                         </div>
                       </div>
                     </td>
                     <td>{row.latest?.followers?.toLocaleString() ?? "-"}</td>
                     <td className={deltaClass(row.derived.delta_1d)}>{formatDelta(row.derived.delta_1d)}</td>
                     <td className={deltaClass(row.derived.delta_7d)}>{formatDelta(row.derived.delta_7d)}</td>
-                    <td>
-                      <span className={`status-pill ${statusClass(lastStatus)}`}>{lastStatus}</span>
-                      {row.latest?.error_code ? <div className="account-secondary">{row.latest.error_code}</div> : null}
-                    </td>
+                    <td className={deltaClass(row.derived.pct_7d)}>{formatPct(row.derived.pct_7d)}</td>
                   </tr>
                 );
               })}
@@ -213,37 +281,14 @@ export function OverviewPage(): JSX.Element {
         </div>
       </section>
 
-      <section className="panel panel-grid">
-        <div>
-          <p className="section-kicker">Exceptions</p>
-          <h3>Missing Today</h3>
-          <ul className="clean-list">
-            {(data?.missing_today ?? []).map((row: AccountOverviewRow) => (
-              <li key={row.account.id} className="account-list-item">
-                <PlatformIcon platform={row.account.platform} className="platform-badge-small" />
-                <span>{row.account.label}</span>
-              </li>
-            ))}
-            {(data?.missing_today ?? []).length === 0 && <li>None</li>}
-          </ul>
-        </div>
-        <div>
-          <p className="section-kicker">Exceptions</p>
-          <h3>Failed Today</h3>
-          <ul className="clean-list">
-            {(data?.failed_today ?? []).map((row: AccountOverviewRow) => (
-              <li key={row.account.id} className="account-list-item">
-                <PlatformIcon platform={row.account.platform} className="platform-badge-small" />
-                <span>
-                  {row.account.label}
-                  {row.latest?.error_code ? ` (${row.latest.error_code})` : ""}
-                </span>
-              </li>
-            ))}
-            {(data?.failed_today ?? []).length === 0 && <li>None</li>}
-          </ul>
-        </div>
-      </section>
+      {comparison ? (
+        <ComparisonCharts
+          data={comparison}
+          selectedDays={comparisonDays}
+          onSelectDays={setComparisonDays}
+          loading={comparisonLoading}
+        />
+      ) : null}
     </main>
   );
 }
