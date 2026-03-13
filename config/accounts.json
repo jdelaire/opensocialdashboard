@@ -1,0 +1,51 @@
+[
+  {
+    "id": "yt-openai",
+    "platform": "youtube",
+    "label": "YouTube - Landscapes UHD",
+    "url": "https://www.youtube.com/@landscapesuhd",
+    "enabled": true
+  },
+  {
+    "id": "ig-instagram",
+    "platform": "instagram",
+    "label": "Instagram - John",
+    "url": "https://www.instagram.com/john.dlr",
+    "enabled": true
+  },
+  {
+    "id": "ig-instagram2",
+    "platform": "instagram",
+    "label": "Instagram - ThaiQuest",
+    "url": "https://www.instagram.com/thaiquestapp",
+    "enabled": true
+  },
+  {
+    "id": "tq-tiktok",
+    "platform": "tiktok",
+    "label": "TikTok - ThaiQuest",
+    "url": "https://www.tiktok.com/@thaiquestapp",
+    "enabled": true
+  },
+  {
+    "id": "tt-tiktok",
+    "platform": "tiktok",
+    "label": "TikTok - The Daily Grind",
+    "url": "https://www.tiktok.com/@thedailygrindjohn",
+    "enabled": true
+  },
+  {
+    "id": "landscape-tiktok",
+    "platform": "tiktok",
+    "label": "TikTok - LandscapesUHD",
+    "url": "https://www.tiktok.com/@landscapesuhd",
+    "enabled": true
+  },
+  {
+    "id": "x-therealdelairj",
+    "platform": "x",
+    "label": "X - Jonathan Delaire",
+    "url": "https://x.com/therealdelairj",
+    "enabled": true
+  }
+]

@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement to Open Social Dashboard
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: I want to compare platform growth more clearly across accounts.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: Add a compact comparison chart to the overview page.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: A table-only approach, exporting CSV, etc.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Nice to have
+        - Important
+        - Critical
+    validations:
+      required: true
+
