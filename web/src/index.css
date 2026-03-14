@@ -110,6 +110,36 @@ body {
   line-height: 1.65;
 }
 
+.hero-back-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  margin-top: 16px;
+  padding: 0 16px;
+  border: 1px solid rgba(48, 73, 63, 0.18);
+  border-radius: 999px;
+  background: rgba(48, 73, 63, 0.08);
+  color: var(--brand);
+  font-family: "Sora", "Manrope", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.hero-back-link:hover {
+  background: rgba(48, 73, 63, 0.12);
+  border-color: rgba(48, 73, 63, 0.26);
+  color: #20332b;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
 .eyebrow {
   margin: 0;
   font-size: 0.78rem;
@@ -596,7 +626,25 @@ a:hover {
 }
 
 .back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(147, 137, 122, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.84);
+  color: var(--text);
+  font-family: "Sora", "Manrope", sans-serif;
+  font-size: 0.78rem;
   font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.back-link:hover {
+  background: rgba(243, 238, 229, 0.9);
+  color: var(--brand);
+  text-decoration: none;
 }
 
 .error {
