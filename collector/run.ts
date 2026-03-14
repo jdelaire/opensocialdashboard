@@ -1,7 +1,8 @@
 import { Browser, chromium } from "playwright";
 import { loadAccountsConfig } from "./config.js";
 import { getConnector } from "./connectors/index.js";
-import { initDb, syncAccounts, upsertSnapshot } from "./db/index.js";
+import { initDb, listSnapshotsForAccount, syncAccounts, upsertSnapshot } from "./db/index.js";
+import { sanitizeCollectedResult } from "./snapshotTrust.js";
 import { AccountConfig, CollectResult } from "./types.js";
 import { bangkokDate } from "./utils/time.js";
 
@@ -114,7 +115,12 @@ export async function runCollection(options: RunOptions = {}): Promise<void> {
   for (const account of enabled) {
     console.log(`[collector] account=${account.id} platform=${account.platform} start`);
     const startedAt = Date.now();
-    const result = await collectOne(account);
+    const recentSnapshotsAsc = listSnapshotsForAccount(db, account.id, 30).reverse();
+    const result = sanitizeCollectedResult(
+      account.platform,
+      recentSnapshotsAsc,
+      await collectOne(account)
+    );
     const snapshotInput = {
       account_id: account.id,
       date,

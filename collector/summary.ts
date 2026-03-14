@@ -1,13 +1,7 @@
 import { loadAccountsConfig } from "./config.js";
-import {
-  getLatestSnapshot,
-  getPreviousSnapshot,
-  getSnapshotOnOrBefore,
-  initDb,
-  listAccounts,
-  syncAccounts
-} from "./db/index.js";
-import { SnapshotRecord } from "./types.js";
+import { initDb, listAccounts, listSnapshotsForAccount, syncAccounts } from "./db/index.js";
+import { sanitizeSnapshotsForAccount } from "./snapshotTrust.js";
+import { Platform, SnapshotRecord } from "./types.js";
 import { bangkokDate, bangkokDateMinusDays } from "./utils/time.js";
 
 function diffFollowers(a?: SnapshotRecord, b?: SnapshotRecord): number | null {
@@ -82,6 +76,30 @@ function formatAggregateTrend(delta7d: number): string {
   return "flat 0";
 }
 
+function latestSnapshot(snapshotsAsc: SnapshotRecord[]): SnapshotRecord | undefined {
+  return snapshotsAsc[snapshotsAsc.length - 1];
+}
+
+function previousSnapshot(snapshotsAsc: SnapshotRecord[], latestDate: string): SnapshotRecord | undefined {
+  for (let index = snapshotsAsc.length - 1; index >= 0; index -= 1) {
+    const snapshot = snapshotsAsc[index];
+    if (snapshot && snapshot.date < latestDate) {
+      return snapshot;
+    }
+  }
+  return undefined;
+}
+
+function snapshotOnOrBefore(snapshotsAsc: SnapshotRecord[], targetDate: string): SnapshotRecord | undefined {
+  for (let index = snapshotsAsc.length - 1; index >= 0; index -= 1) {
+    const snapshot = snapshotsAsc[index];
+    if (snapshot && snapshot.date <= targetDate) {
+      return snapshot;
+    }
+  }
+  return undefined;
+}
+
 export async function runSummary(): Promise<void> {
   const db = initDb();
   try {
@@ -92,11 +110,15 @@ export async function runSummary(): Promise<void> {
     const accounts = listAccounts(db);
 
     const rows = accounts.map((account) => {
-      const latest = getLatestSnapshot(db, account.id);
-      const previous = latest ? getPreviousSnapshot(db, account.id, latest.date) : undefined;
+      const snapshotsAsc = sanitizeSnapshotsForAccount(
+        account.platform as Platform,
+        listSnapshotsForAccount(db, account.id, 400).reverse()
+      );
+      const latest = latestSnapshot(snapshotsAsc);
+      const previous = latest ? previousSnapshot(snapshotsAsc, latest.date) : undefined;
       const latestDate = latest?.date ?? today;
-      const snapshot7d = getSnapshotOnOrBefore(db, account.id, bangkokDateMinusDays(latestDate, 7));
-      const snapshot30d = getSnapshotOnOrBefore(db, account.id, bangkokDateMinusDays(latestDate, 30));
+      const snapshot7d = snapshotOnOrBefore(snapshotsAsc, bangkokDateMinusDays(latestDate, 7));
+      const snapshot30d = snapshotOnOrBefore(snapshotsAsc, bangkokDateMinusDays(latestDate, 30));
 
       const delta_1d = diffFollowers(latest, previous);
       const delta_7d = diffFollowers(latest, snapshot7d);

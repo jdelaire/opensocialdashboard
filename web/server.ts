@@ -1,19 +1,16 @@
 import express from "express";
 import {
   getAccountById,
-  getLatestSnapshot,
-  getPreviousSnapshot,
-  getSnapshotOnOrBefore,
   initDb,
   listAccounts,
   listSnapshotsForAccount,
-  listSnapshotsForAccountSince,
   syncAccounts
 } from "../collector/db/index.js";
 import { loadAccountsConfig } from "../collector/config.js";
 import { runCollection } from "../collector/run.js";
+import { sanitizeSnapshotsForAccount } from "../collector/snapshotTrust.js";
+import { Platform, SnapshotRecord } from "../collector/types.js";
 import { bangkokDate, bangkokDateMinusDays } from "../collector/utils/time.js";
-import { SnapshotRecord } from "../collector/types.js";
 
 const app = express();
 const port = Number(process.env.APP_API_PORT || process.env.PORT || 8790);
@@ -154,6 +151,30 @@ function comparisonKey(accountId: string, index: number): string {
   return normalized ? `${normalized}_${index}` : `account_${index}`;
 }
 
+function latestSnapshot(snapshotsAsc: SnapshotRecord[]): SnapshotRecord | undefined {
+  return snapshotsAsc[snapshotsAsc.length - 1];
+}
+
+function previousSnapshot(snapshotsAsc: SnapshotRecord[], latestDate: string): SnapshotRecord | undefined {
+  for (let index = snapshotsAsc.length - 1; index >= 0; index -= 1) {
+    const snapshot = snapshotsAsc[index];
+    if (snapshot && snapshot.date < latestDate) {
+      return snapshot;
+    }
+  }
+  return undefined;
+}
+
+function snapshotOnOrBefore(snapshotsAsc: SnapshotRecord[], targetDate: string): SnapshotRecord | undefined {
+  for (let index = snapshotsAsc.length - 1; index >= 0; index -= 1) {
+    const snapshot = snapshotsAsc[index];
+    if (snapshot && snapshot.date <= targetDate) {
+      return snapshot;
+    }
+  }
+  return undefined;
+}
+
 app.get("/api/comparison", (req, res) => {
   const db = initDb();
   try {
@@ -171,8 +192,12 @@ app.get("/api/comparison", (req, res) => {
         const key = comparisonKey(account.id, index);
         const followersKey = `${key}_followers`;
         const indexKey = `${key}_index`;
-        const startSnapshot = getSnapshotOnOrBefore(db, account.id, startDate);
-        const rangeSnapshots = listSnapshotsForAccountSince(db, account.id, startDate);
+        const historyAsc = sanitizeSnapshotsForAccount(
+          account.platform as Platform,
+          listSnapshotsForAccount(db, account.id, Math.min(days + 30, 2000)).reverse()
+        );
+        const startSnapshot = snapshotOnOrBefore(historyAsc, startDate);
+        const rangeSnapshots = historyAsc.filter((snapshot) => snapshot.date >= startDate);
         const snapshotsByDate = new Map(rangeSnapshots.map((snapshot) => [snapshot.date, snapshot]));
 
         let currentFollowers = validFollowerValue(startSnapshot);
@@ -247,12 +272,16 @@ app.get("/api/accounts", (_req, res) => {
     const accounts = listAccounts(db);
 
     const accountRows = accounts.map((account) => {
-      const latest = getLatestSnapshot(db, account.id);
-      const previous = latest ? getPreviousSnapshot(db, account.id, latest.date) : undefined;
+      const snapshotsAsc = sanitizeSnapshotsForAccount(
+        account.platform as Platform,
+        listSnapshotsForAccount(db, account.id, 400).reverse()
+      );
+      const latest = latestSnapshot(snapshotsAsc);
+      const previous = latest ? previousSnapshot(snapshotsAsc, latest.date) : undefined;
 
       const latestDate = latest?.date ?? today;
-      const snapshot7d = getSnapshotOnOrBefore(db, account.id, bangkokDateMinusDays(latestDate, 7));
-      const snapshot30d = getSnapshotOnOrBefore(db, account.id, bangkokDateMinusDays(latestDate, 30));
+      const snapshot7d = snapshotOnOrBefore(snapshotsAsc, bangkokDateMinusDays(latestDate, 7));
+      const snapshot30d = snapshotOnOrBefore(snapshotsAsc, bangkokDateMinusDays(latestDate, 30));
 
       const delta_1d = diffFollowers(latest, previous);
       const delta_7d = diffFollowers(latest, snapshot7d);
@@ -308,8 +337,10 @@ app.get("/api/accounts/:id/snapshots", (req, res) => {
       return;
     }
 
-    const snapshotsDesc = listSnapshotsForAccount(db, accountId, days);
-    const snapshotsAsc = [...snapshotsDesc].reverse();
+    const snapshotsAsc = sanitizeSnapshotsForAccount(
+      account.platform as Platform,
+      listSnapshotsForAccount(db, accountId, Math.min(days + 30, 2000)).reverse()
+    ).filter((snapshot) => snapshot.date >= bangkokDateMinusDays(bangkokDate(), days - 1));
 
     const validFollowers = snapshotsAsc
       .map((snapshot) => snapshot.followers)
@@ -320,8 +351,8 @@ app.get("/api/accounts/:id/snapshots", (req, res) => {
 
     const { best_day, worst_day } = computeBestWorst(snapshotsAsc);
 
-    const latest = snapshotsAsc[snapshotsAsc.length - 1];
-    const base7 = latest ? getSnapshotOnOrBefore(db, accountId, bangkokDateMinusDays(latest.date, 7)) : undefined;
+    const latest = latestSnapshot(snapshotsAsc);
+    const base7 = latest ? snapshotOnOrBefore(snapshotsAsc, bangkokDateMinusDays(latest.date, 7)) : undefined;
     const delta7 = diffFollowers(latest, base7);
     const growth_7d_rate = pct(delta7, base7?.followers ?? null);
 

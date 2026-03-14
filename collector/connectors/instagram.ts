@@ -1,11 +1,12 @@
 import { Page } from "playwright";
 import { detectBlockOrCaptcha } from "../extract/blockDetect.js";
+import { parseFollowerCount } from "../extract/normalize.js";
 import { CollectResult, Connector } from "../types.js";
 import {
+  Candidate,
   extractCountNearKeywords,
   extractFromJsonKeys,
   extractFromMeta,
-  extractFromSelectors,
   failed,
   fetchHtml,
   htmlToText,
@@ -13,6 +14,51 @@ import {
 } from "./base.js";
 
 const KEYWORDS = ["followers", "follower"];
+
+async function extractInstagramFollowersFromPage(page: Page): Promise<Candidate | null> {
+  const selectorPlans = [
+    { selector: "a[href$='/followers/']", allowDirect: true },
+    { selector: "a[href*='/followers']", allowDirect: true },
+    { selector: "header section ul li", allowDirect: false },
+    { selector: "header li", allowDirect: false }
+  ];
+
+  for (const plan of selectorPlans) {
+    try {
+      const locator = page.locator(plan.selector);
+      const count = Math.min(await locator.count(), 8);
+
+      for (let index = 0; index < count; index += 1) {
+        const text = await locator.nth(index).innerText({ timeout: 2_500 }).catch(() => "");
+        if (!text) {
+          continue;
+        }
+
+        const nearby = extractCountNearKeywords(text, KEYWORDS, "high");
+        if (nearby) {
+          return nearby;
+        }
+
+        if (!plan.allowDirect) {
+          continue;
+        }
+
+        const direct = parseFollowerCount(text);
+        if (direct !== null) {
+          return {
+            followers: direct,
+            confidence: "high",
+            raw_excerpt: text
+          };
+        }
+      }
+    } catch {
+      // Fallback to the next selector plan.
+    }
+  }
+
+  return null;
+}
 
 export const instagramConnector: Connector = {
   supports(url: string): boolean {
@@ -66,16 +112,7 @@ export const instagramConnector: Connector = {
         return failed("playwright", "captcha", "Captcha or bot challenge detected in browser response.");
       }
 
-      const fromSelectors = await extractFromSelectors(
-        page,
-        [
-          "header li span[title]",
-          "header section ul li",
-          "main section span"
-        ],
-        KEYWORDS,
-        "high"
-      );
+      const fromSelectors = await extractInstagramFollowersFromPage(page);
       if (fromSelectors) {
         return success("playwright", fromSelectors);
       }
