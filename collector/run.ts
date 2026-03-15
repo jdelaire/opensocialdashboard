@@ -10,18 +10,54 @@ interface RunOptions {
   source?: "cli" | "api" | "scheduler";
 }
 
+const PLAYWRIGHT_MAX_ATTEMPTS = 3;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-function isTransientPlaywrightError(errorCode?: string, errorMessage?: string): boolean {
-  const transientCodes = new Set(["playwright_navigation_failed", "timeout", "network"]);
-  if (errorCode && transientCodes.has(errorCode)) {
+function isRetryablePlaywrightResult(result: CollectResult): boolean {
+  if (result.status === "ok" || result.error_code === "captcha") {
+    return false;
+  }
+
+  const transientCodes = new Set([
+    "extract_failed",
+    "playwright_navigation_failed",
+    "playwright_failed",
+    "timeout",
+    "network"
+  ]);
+  if (result.error_code && transientCodes.has(result.error_code)) {
     return true;
   }
 
-  const haystack = (errorMessage || "").toLowerCase();
+  const haystack = `${result.error_code || ""} ${result.error_message || ""}`.toLowerCase();
   return haystack.includes("timeout") || haystack.includes("net::") || haystack.includes("connection");
+}
+
+async function waitBeforeRetry(attempt: number): Promise<void> {
+  const delayMs = 1_000 * (attempt + 1);
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function exhaustedRetryResult(lastResult: CollectResult, attempts: number): CollectResult {
+  const suffix = `Playwright extraction failed after ${attempts} attempts.`;
+  return normalizeResult({
+    ...lastResult,
+    error_message: lastResult.error_message ? `${lastResult.error_message} ${suffix}` : suffix
+  });
+}
+
+function playwrightLaunchFailureResult(error: unknown): CollectResult {
+  return {
+    followers: null,
+    method: "playwright",
+    confidence: "low",
+    status: "failed",
+    error_code: "playwright_failed",
+    error_message: error instanceof Error ? error.message : "Unable to start Playwright browser"
+  };
 }
 
 function normalizeResult(result: CollectResult): CollectResult {
@@ -37,43 +73,48 @@ async function collectWithPlaywright(account: AccountConfig): Promise<CollectRes
 
   try {
     browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    return playwrightLaunchFailureResult(error);
+  }
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+  let lastResult: CollectResult | undefined;
+
+  try {
+    for (let attempt = 0; attempt < PLAYWRIGHT_MAX_ATTEMPTS; attempt += 1) {
       const connector = getConnector(account.platform);
-      const page = await browser.newPage();
+      const context = await browser.newContext({
+        locale: "en-US"
+      });
+      const page = await context.newPage();
 
       try {
         const result = normalizeResult(await connector.collectViaPlaywright(account.url, page));
-        if (
-          result.status === "failed" &&
-          attempt === 0 &&
-          isTransientPlaywrightError(result.error_code, result.error_message)
-        ) {
+        lastResult = result;
+        if (isRetryablePlaywrightResult(result) && attempt < PLAYWRIGHT_MAX_ATTEMPTS - 1) {
+          console.log(
+            `[collector] account=${account.id} retry attempt=${attempt + 2}/${PLAYWRIGHT_MAX_ATTEMPTS} error_code=${result.error_code ?? "unknown"}`
+          );
+          await waitBeforeRetry(attempt);
           continue;
         }
         return result;
       } finally {
-        await page.close();
+        await page.close().catch(() => undefined);
+        await context.close().catch(() => undefined);
       }
     }
 
-    return {
-      followers: null,
-      method: "playwright",
-      confidence: "low",
-      status: "failed",
-      error_code: "playwright_retry_exhausted",
-      error_message: "Playwright retry exhausted without successful extraction."
-    };
-  } catch (error) {
-    return {
-      followers: null,
-      method: "playwright",
-      confidence: "low",
-      status: "failed",
-      error_code: "playwright_failed",
-      error_message: error instanceof Error ? error.message : "Unable to start Playwright browser"
-    };
+    return exhaustedRetryResult(
+      lastResult ?? {
+        followers: null,
+        method: "playwright",
+        confidence: "low",
+        status: "failed",
+        error_code: "playwright_retry_exhausted",
+        error_message: "Playwright retry exhausted without a result."
+      },
+      PLAYWRIGHT_MAX_ATTEMPTS
+    );
   } finally {
     await browser?.close();
   }

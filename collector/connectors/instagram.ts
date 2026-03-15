@@ -60,6 +60,47 @@ async function extractInstagramFollowersFromPage(page: Page): Promise<Candidate 
   return null;
 }
 
+async function collectInstagramPageSnapshot(page: Page): Promise<{ bodyText: string; html: string }> {
+  const [bodyText, html] = await Promise.all([
+    page.locator("body").innerText().catch(() => ""),
+    page.content()
+  ]);
+
+  return { bodyText, html };
+}
+
+async function extractInstagramFollowersWithSnapshot(
+  page: Page,
+  bodyText: string,
+  html: string
+): Promise<CollectResult> {
+  if (detectBlockOrCaptcha(`${bodyText}\n${html}`)) {
+    return failed("playwright", "captcha", "Captcha or bot challenge detected in browser response.");
+  }
+
+  const fromSelectors = await extractInstagramFollowersFromPage(page);
+  if (fromSelectors) {
+    return success("playwright", fromSelectors);
+  }
+
+  const fromText = extractCountNearKeywords(bodyText, KEYWORDS, "medium");
+  if (fromText) {
+    return success("playwright", fromText);
+  }
+
+  const fromJson = extractFromJsonKeys(html, ["edge_followed_by", "follower_count"], "low");
+  if (fromJson) {
+    return success("playwright", fromJson);
+  }
+
+  return failed(
+    "playwright",
+    "extract_failed",
+    "Unable to extract Instagram followers via Playwright.",
+    bodyText || html
+  );
+}
+
 export const instagramConnector: Connector = {
   supports(url: string): boolean {
     return /instagram\.com/i.test(url);
@@ -101,33 +142,27 @@ export const instagramConnector: Connector = {
   async collectViaPlaywright(url: string, page: Page): Promise<CollectResult> {
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
+      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      await page.locator("header").first().waitFor({ timeout: 5_000 }).catch(() => undefined);
       await page.waitForTimeout(1_500);
 
-      const [bodyText, html] = await Promise.all([
-        page.locator("body").innerText().catch(() => ""),
-        page.content()
-      ]);
-
-      if (detectBlockOrCaptcha(`${bodyText}\n${html}`)) {
-        return failed("playwright", "captcha", "Captcha or bot challenge detected in browser response.");
+      const firstSnapshot = await collectInstagramPageSnapshot(page);
+      const firstPass = await extractInstagramFollowersWithSnapshot(
+        page,
+        firstSnapshot.bodyText,
+        firstSnapshot.html
+      );
+      if (firstPass.status === "ok" || firstPass.error_code === "captcha") {
+        return firstPass;
       }
 
-      const fromSelectors = await extractInstagramFollowersFromPage(page);
-      if (fromSelectors) {
-        return success("playwright", fromSelectors);
-      }
+      await page.evaluate(() => window.scrollTo(0, Math.min(window.innerHeight, document.body.scrollHeight / 3))).catch(
+        () => undefined
+      );
+      await page.waitForTimeout(2_500);
 
-      const fromText = extractCountNearKeywords(bodyText, KEYWORDS, "medium");
-      if (fromText) {
-        return success("playwright", fromText);
-      }
-
-      const fromJson = extractFromJsonKeys(html, ["edge_followed_by", "follower_count"], "low");
-      if (fromJson) {
-        return success("playwright", fromJson);
-      }
-
-      return failed("playwright", "extract_failed", "Unable to extract Instagram followers via Playwright.");
+      const secondSnapshot = await collectInstagramPageSnapshot(page);
+      return extractInstagramFollowersWithSnapshot(page, secondSnapshot.bodyText, secondSnapshot.html);
     } catch (error) {
       return failed(
         "playwright",
