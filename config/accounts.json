@@ -47,5 +47,12 @@
     "label": "X - Jonathan Delaire",
     "url": "https://x.com/therealdelairj",
     "enabled": true
+  },
+  {
+    "id": "rednote-jonathan-delaire",
+    "platform": "rednote",
+    "label": "RedNote - Jonathan Delaire",
+    "url": "https://www.xiaohongshu.com/user/profile/42261194871",
+    "enabled": true
   }
 ]

@@ -3,9 +3,9 @@ import { detectBlockOrCaptcha } from "../extract/blockDetect.js";
 import { parseFollowerCount } from "../extract/normalize.js";
 import { CollectResult, Connector } from "../types.js";
 import {
+  Candidate,
   extractCountNearKeywords,
   extractFromJsonKeys,
-  extractFromMeta,
   extractFromSelectors,
   failed,
   fetchHtml,
@@ -14,6 +14,96 @@ import {
 } from "./base.js";
 
 const KEYWORDS = ["followers", "follower", "fans", "粉丝"];
+
+function parseLowerBoundFollowerCount(rawInput: string): number | null {
+  const match = rawInput
+    .replace(/[＋﹢]/g, "+")
+    .match(/([0-9][0-9\s,._]*)(?:\s*([kKmMbB千萬万亿億]))?\s*\+/);
+
+  if (!match) {
+    return null;
+  }
+
+  const valuePart = match[1]?.replace(/_/g, "").trim();
+  if (!valuePart) {
+    return null;
+  }
+
+  return parseFollowerCount(`${valuePart}${match[2] ?? ""}`);
+}
+
+function candidateFromRawCount(rawCount: string, confidence: Candidate["confidence"], rawExcerpt: string): Candidate | null {
+  const exact = parseFollowerCount(rawCount);
+  if (exact !== null) {
+    return {
+      followers: exact,
+      confidence,
+      raw_excerpt: rawExcerpt,
+      measurement_kind: "exact"
+    };
+  }
+
+  const lowerBound = parseLowerBoundFollowerCount(rawCount);
+  if (lowerBound !== null) {
+    return {
+      followers: lowerBound,
+      confidence,
+      raw_excerpt: rawExcerpt,
+      measurement_kind: "lower_bound"
+    };
+  }
+
+  return null;
+}
+
+function extractCountNearKeywordsWithMeasurement(
+  text: string,
+  confidence: Candidate["confidence"]
+): Candidate | null {
+  for (const keyword of KEYWORDS) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const patterns = [
+      new RegExp(`([0-9][0-9\\s,._]*(?:[kKmMbB千萬万亿億])?\\s*[+＋﹢]?)\\s*(?:位)?\\s*(?:${escaped})`, "i"),
+      new RegExp(`(?:${escaped})\\s*[:\\-]?\\s*([0-9][0-9\\s,._]*(?:[kKmMbB千萬万亿億])?\\s*[+＋﹢]?)`, "i")
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const rawValue = match?.[1];
+      const excerpt = match?.[0];
+      if (!rawValue || !excerpt) {
+        continue;
+      }
+
+      const candidate = candidateFromRawCount(rawValue, confidence, excerpt);
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractFromMetaWithMeasurement(html: string, confidence: Candidate["confidence"]): Candidate | null {
+  const metaTagPattern = /<meta[^>]*>/gi;
+  const tagMatches = html.match(metaTagPattern) || [];
+
+  for (const tag of tagMatches) {
+    const contentMatch = tag.match(/content=["']([^"']+)["']/i);
+    const content = contentMatch?.[1];
+    if (!content) {
+      continue;
+    }
+
+    const candidate = extractCountNearKeywordsWithMeasurement(content, confidence);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
 
 function extractFromInitialStateInteractions(html: string) {
   const fansMatch = html.match(/"type":"fans"[^}]*"count":"([^"]+)"/i)
@@ -24,16 +114,7 @@ function extractFromInitialStateInteractions(html: string) {
     return null;
   }
 
-  const parsed = parseFollowerCount(rawCount);
-  if (parsed === null) {
-    return null;
-  }
-
-  return {
-    followers: parsed,
-    confidence: "high" as const,
-    raw_excerpt: `fans: ${rawCount}`
-  };
+  return candidateFromRawCount(rawCount, "high", `fans: ${rawCount}`);
 }
 
 export const rednoteConnector: Connector = {
@@ -53,7 +134,7 @@ export const rednoteConnector: Connector = {
         return success("html", fromInitialState);
       }
 
-      const fromMeta = extractFromMeta(html, KEYWORDS, "high");
+      const fromMeta = extractFromMetaWithMeasurement(html, "high");
       if (fromMeta) {
         return success("html", fromMeta);
       }
@@ -64,7 +145,8 @@ export const rednoteConnector: Connector = {
       }
 
       const plain = htmlToText(html);
-      const fromText = extractCountNearKeywords(plain, KEYWORDS, "low");
+      const fromText = extractCountNearKeywordsWithMeasurement(plain, "low")
+        ?? extractCountNearKeywords(plain, KEYWORDS, "low");
       if (fromText) {
         return success("html", fromText);
       }
@@ -119,8 +201,9 @@ export const rednoteConnector: Connector = {
       }
 
       const fromText = extractCountNearKeywords(bodyText, KEYWORDS, "medium");
-      if (fromText) {
-        return success("playwright", fromText);
+      const fromMeasuredText = extractCountNearKeywordsWithMeasurement(bodyText, "medium") ?? fromText;
+      if (fromMeasuredText) {
+        return success("playwright", fromMeasuredText);
       }
 
       const fromJson = extractFromJsonKeys(html, ["followerCount", "fans", "followedCount"], "low");

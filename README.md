@@ -46,6 +46,8 @@ By default dev mode uses `APP_API_PORT=8790` for API + Vite proxy consistency.
 - Retries Playwright once for transient errors.
 - Writes exactly one snapshot per account per Bangkok day (`UNIQUE(account_id, date)` with upsert).
 - Detects block/captcha pages and records failed status with `error_code=captcha`.
+- Preserves lower-bound public counts (for example RedNote `1万+`) as `>=` values instead of dropping them entirely.
+- Keeps deltas and growth rates conservative: they only compute when both snapshots are exact counts.
 - API process includes an in-process auto-collector loop (every 24h) while running.
 - Auto-collector can be configured with:
   - `AUTO_COLLECT_DISABLED=1` to disable

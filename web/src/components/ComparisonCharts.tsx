@@ -16,6 +16,11 @@ function formatCompact(value: number | null): string {
   }).format(value);
 }
 
+function formatCompactMeasurement(value: number | null, measurementKind: "exact" | "lower_bound"): string {
+  const rendered = formatCompact(value);
+  return value !== null && measurementKind === "lower_bound" ? `>=${rendered}` : rendered;
+}
+
 function formatPercent(value: number | null): string {
   if (value === null) {
     return "-";
@@ -48,6 +53,7 @@ interface ComparisonChartsProps {
 
 export function ComparisonCharts({ data, selectedDays, onSelectDays, loading = false }: ComparisonChartsProps): JSX.Element {
   const hasSeries = data.series.length > 0;
+  const hasLowerBoundSeries = data.series.some((item) => item.latest_measurement_kind === "lower_bound");
 
   return (
     <section className={loading ? "panel comparison-panel comparison-panel-loading" : "panel comparison-panel"}>
@@ -164,12 +170,15 @@ export function ComparisonCharts({ data, selectedDays, onSelectDays, loading = f
                 <div className="comparison-legend-copy">
                   <div className="comparison-legend-title">{item.label}</div>
                   <div className="account-secondary">
-                    {formatCompact(item.latest_followers)} current | {formatPercent(item.pct_change)}
+                    {formatCompactMeasurement(item.latest_followers, item.latest_measurement_kind)} current | {formatPercent(item.pct_change)}
                   </div>
                 </div>
               </div>
             ))}
           </div>
+          {hasLowerBoundSeries ? (
+            <p className="account-secondary">Some series include lower-bound values and render as floors rather than exact counts.</p>
+          ) : null}
         </>
       )}
     </section>

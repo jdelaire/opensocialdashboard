@@ -11,6 +11,14 @@ function formatPct(value: number | null): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function formatFollowerCount(value: number | null, measurementKind: Snapshot["measurement_kind"] = "exact"): string {
+  if (value === null) {
+    return "-";
+  }
+  const rendered = value.toLocaleString();
+  return measurementKind === "lower_bound" ? `>=${rendered}` : rendered;
+}
+
 function statusClass(status: "ok" | "failed"): string {
   return status === "ok" ? "status-ok" : "status-failed";
 }
@@ -66,6 +74,10 @@ export function AccountPage(): JSX.Element {
       followers: snapshot.followers
     }));
   }, [data]);
+  const hasLowerBoundSnapshots = useMemo(
+    () => (data?.snapshots ?? []).some((snapshot) => snapshot.measurement_kind === "lower_bound" && snapshot.followers !== null),
+    [data]
+  );
 
   if (!id) {
     return <p className="error">Missing account id.</p>;
@@ -122,6 +134,9 @@ export function AccountPage(): JSX.Element {
             </LineChart>
           </ResponsiveContainer>
         </div>
+        {hasLowerBoundSnapshots ? (
+          <p className="account-secondary">Some points are lower bounds and render as floors rather than exact follower counts.</p>
+        ) : null}
       </section>
 
       <section className="panel panel-grid">
@@ -129,8 +144,8 @@ export function AccountPage(): JSX.Element {
           <p className="section-kicker">Breakdown</p>
           <h3>Stats</h3>
           <ul className="clean-list">
-            <li>Min Followers: {data?.stats.min_followers?.toLocaleString() ?? "-"}</li>
-            <li>Max Followers: {data?.stats.max_followers?.toLocaleString() ?? "-"}</li>
+            <li>Min Exact Followers: {data?.stats.min_followers?.toLocaleString() ?? "-"}</li>
+            <li>Max Exact Followers: {data?.stats.max_followers?.toLocaleString() ?? "-"}</li>
             <li>
               Best Day: {data?.stats.best_day ? `${data.stats.best_day.date} (${data.stats.best_day.delta >= 0 ? "+" : ""}${data.stats.best_day.delta.toLocaleString()})` : "-"}
             </li>
@@ -147,6 +162,7 @@ export function AccountPage(): JSX.Element {
             {(data?.snapshots ?? []).slice(-5).reverse().map((snapshot: Snapshot) => (
               <li key={snapshot.id}>
                 {snapshot.date} - <span className={`status-pill ${statusClass(snapshot.status)}`}>{snapshot.status}</span>
+                {snapshot.status === "ok" ? ` ${formatFollowerCount(snapshot.followers, snapshot.measurement_kind)}` : ""}
                 {snapshot.error_code ? <span className="account-secondary"> {snapshot.error_code}</span> : ""}
               </li>
             ))}

@@ -1,6 +1,6 @@
 import { Page } from "playwright";
 import { parseFollowerCount } from "../extract/normalize.js";
-import { CollectConfidence, CollectMethod, CollectResult } from "../types.js";
+import { CollectConfidence, CollectMethod, CollectResult, MeasurementKind } from "../types.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
@@ -12,11 +12,13 @@ export interface Candidate {
   followers: number;
   confidence: CollectConfidence;
   raw_excerpt: string;
+  measurement_kind?: MeasurementKind;
 }
 
 export function success(method: CollectMethod, candidate: Candidate): CollectResult {
   return {
     followers: candidate.followers,
+    measurement_kind: candidate.measurement_kind ?? "exact",
     method,
     confidence: candidate.confidence,
     status: "ok",
@@ -32,6 +34,7 @@ export function failed(
 ): CollectResult {
   const result: CollectResult = {
     followers: null,
+    measurement_kind: "exact",
     method,
     confidence: "low",
     status: "failed",

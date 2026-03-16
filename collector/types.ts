@@ -6,6 +6,8 @@ export type CollectConfidence = "high" | "medium" | "low";
 
 export type CollectStatus = "ok" | "failed";
 
+export type MeasurementKind = "exact" | "lower_bound";
+
 export interface AccountConfig {
   id: string;
   platform: Platform;
@@ -16,6 +18,7 @@ export interface AccountConfig {
 
 export interface CollectResult {
   followers: number | null;
+  measurement_kind: MeasurementKind;
   method: CollectMethod;
   confidence: CollectConfidence;
   status: CollectStatus;

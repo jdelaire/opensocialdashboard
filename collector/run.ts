@@ -52,6 +52,7 @@ function exhaustedRetryResult(lastResult: CollectResult, attempts: number): Coll
 function playwrightLaunchFailureResult(error: unknown): CollectResult {
   return {
     followers: null,
+    measurement_kind: "exact",
     method: "playwright",
     confidence: "low",
     status: "failed",
@@ -107,6 +108,7 @@ async function collectWithPlaywright(account: AccountConfig): Promise<CollectRes
     return exhaustedRetryResult(
       lastResult ?? {
         followers: null,
+        measurement_kind: "exact",
         method: "playwright",
         confidence: "low",
         status: "failed",
@@ -126,6 +128,7 @@ async function collectOne(account: AccountConfig): Promise<CollectResult> {
   if (!connector.supports(account.url)) {
     return {
       followers: null,
+      measurement_kind: "exact",
       method: "html",
       confidence: "low",
       status: "failed",
@@ -166,6 +169,7 @@ export async function runCollection(options: RunOptions = {}): Promise<void> {
       account_id: account.id,
       date,
       followers: result.followers,
+      measurement_kind: result.measurement_kind,
       method: result.method,
       confidence: result.confidence,
       status: result.status,
@@ -184,7 +188,7 @@ export async function runCollection(options: RunOptions = {}): Promise<void> {
     upsertSnapshot(db, snapshotInput);
 
     const durationMs = Date.now() - startedAt;
-    const logCore = `status=${result.status} method=${result.method} followers=${result.followers ?? "null"}`;
+    const logCore = `status=${result.status} method=${result.method} followers=${result.followers ?? "null"} measurement_kind=${result.measurement_kind}`;
     const errorCore = result.error_code ? ` error_code=${result.error_code}` : "";
 
     console.log(`[collector] account=${account.id} done ${logCore}${errorCore} duration_ms=${durationMs}`);

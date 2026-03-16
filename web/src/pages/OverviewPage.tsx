@@ -30,6 +30,14 @@ function deltaClass(value: number | null): string {
   return value > 0 ? "delta-positive" : "delta-negative";
 }
 
+function formatFollowerCount(value: number | null, measurementKind: "exact" | "lower_bound" = "exact"): string {
+  if (value === null) {
+    return "-";
+  }
+  const rendered = value.toLocaleString();
+  return measurementKind === "lower_bound" ? `>=${rendered}` : rendered;
+}
+
 function statusClass(status: "ok" | "failed" | "missing"): string {
   if (status === "ok") {
     return "status-ok";
@@ -176,6 +184,12 @@ export function OverviewPage(): JSX.Element {
 
     return {
       totalFollowers,
+      totalFollowersIsLowerBound: rows.some(
+        (row) =>
+          row.latest?.status === "ok" &&
+          row.latest.followers !== null &&
+          row.latest.measurement_kind === "lower_bound"
+      ),
       totalDelta1d,
       totalDelta7d,
       okCount,
@@ -207,7 +221,10 @@ export function OverviewPage(): JSX.Element {
         <div className="stats-grid">
           <div className="stat-card">
             <div className="stat-label">Total Audience</div>
-            <div className="stat-value">{aggregate.totalFollowers.toLocaleString()}</div>
+            <div className="stat-value">{formatFollowerCount(aggregate.totalFollowers, aggregate.totalFollowersIsLowerBound ? "lower_bound" : "exact")}</div>
+            {aggregate.totalFollowersIsLowerBound ? (
+              <div className="stat-support">Includes lower-bound platform counts.</div>
+            ) : null}
           </div>
           <div className="stat-card">
             <div className="stat-label">Daily Change</div>
@@ -234,7 +251,7 @@ export function OverviewPage(): JSX.Element {
           <div>
             <p className="section-kicker">Accounts</p>
             <h2>Leaderboard</h2>
-            <p className="section-summary">Sorted by 7-day momentum so the strongest movers rise to the top.</p>
+            <p className="section-summary">Sorted by 7-day momentum so the strongest movers rise to the top. Lower-bound counts render as <code>&gt;=</code>.</p>
           </div>
         </div>
         <div className="table-wrap">
@@ -269,7 +286,7 @@ export function OverviewPage(): JSX.Element {
                         </div>
                       </div>
                     </td>
-                    <td>{row.latest?.followers?.toLocaleString() ?? "-"}</td>
+                    <td>{formatFollowerCount(row.latest?.followers ?? null, row.latest?.measurement_kind ?? "exact")}</td>
                     <td className={deltaClass(row.derived.delta_1d)}>{formatDelta(row.derived.delta_1d)}</td>
                     <td className={deltaClass(row.derived.delta_7d)}>{formatDelta(row.derived.delta_7d)}</td>
                     <td className={deltaClass(row.derived.pct_7d)}>{formatPct(row.derived.pct_7d)}</td>

@@ -97,7 +97,16 @@ function parseDays(input: string | undefined): number {
 }
 
 function diffFollowers(a?: SnapshotRecord, b?: SnapshotRecord): number | null {
-  if (!a || !b || a.followers === null || b.followers === null) {
+  if (
+    !a ||
+    !b ||
+    a.followers === null ||
+    b.followers === null ||
+    a.status !== "ok" ||
+    b.status !== "ok" ||
+    a.measurement_kind !== "exact" ||
+    b.measurement_kind !== "exact"
+  ) {
     return null;
   }
   return a.followers - b.followers;
@@ -141,6 +150,18 @@ function computeBestWorst(snapshotsAsc: SnapshotRecord[]): {
 
 function validFollowerValue(snapshot: SnapshotRecord | undefined): number | null {
   if (!snapshot || snapshot.status !== "ok" || snapshot.followers === null) {
+    return null;
+  }
+  return snapshot.followers;
+}
+
+function validExactFollowerValue(snapshot: SnapshotRecord | undefined): number | null {
+  if (
+    !snapshot ||
+    snapshot.status !== "ok" ||
+    snapshot.followers === null ||
+    snapshot.measurement_kind !== "exact"
+  ) {
     return null;
   }
   return snapshot.followers;
@@ -222,9 +243,19 @@ app.get("/api/comparison", (req, res) => {
           }
         }
 
+        const latestDisplaySnapshot = latestSnapshot(historyAsc);
         const latestFollowers = currentFollowers;
-        const delta = latestFollowers !== null && baselineFollowers !== null ? latestFollowers - baselineFollowers : null;
-        const pctChange = delta !== null && baselineFollowers !== null && baselineFollowers > 0 ? delta / baselineFollowers : null;
+        const delta =
+          latestDisplaySnapshot &&
+          startSnapshot &&
+          validExactFollowerValue(latestDisplaySnapshot) !== null &&
+          validExactFollowerValue(startSnapshot) !== null
+            ? validExactFollowerValue(latestDisplaySnapshot)! - validExactFollowerValue(startSnapshot)!
+            : null;
+        const pctChange =
+          delta !== null && validExactFollowerValue(startSnapshot) !== null && validExactFollowerValue(startSnapshot)! > 0
+            ? delta / validExactFollowerValue(startSnapshot)!
+            : null;
 
         return {
           account_id: account.id,
@@ -233,6 +264,7 @@ app.get("/api/comparison", (req, res) => {
           followers_key: followersKey,
           index_key: indexKey,
           latest_followers: latestFollowers,
+          latest_measurement_kind: latestDisplaySnapshot?.measurement_kind ?? "exact",
           delta,
           pct_change: pctChange
         };
@@ -343,7 +375,7 @@ app.get("/api/accounts/:id/snapshots", (req, res) => {
     ).filter((snapshot) => snapshot.date >= bangkokDateMinusDays(bangkokDate(), days - 1));
 
     const validFollowers = snapshotsAsc
-      .map((snapshot) => snapshot.followers)
+      .map((snapshot) => validExactFollowerValue(snapshot))
       .filter((value): value is number => value !== null);
 
     const min_followers = validFollowers.length ? Math.min(...validFollowers) : null;

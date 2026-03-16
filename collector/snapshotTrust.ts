@@ -26,7 +26,12 @@ function median(values: number[]): number {
 
 function recentTrustedFollowers(snapshotsAsc: SnapshotRecord[]): number[] {
   return snapshotsAsc
-    .filter((snapshot) => snapshot.status === "ok" && snapshot.followers !== null)
+    .filter(
+      (snapshot) =>
+        snapshot.status === "ok" &&
+        snapshot.followers !== null &&
+        snapshot.measurement_kind === "exact"
+    )
     .map((snapshot) => snapshot.followers as number)
     .slice(-TRUST_WINDOW);
 }
@@ -34,9 +39,14 @@ function recentTrustedFollowers(snapshotsAsc: SnapshotRecord[]): number[] {
 function rejectionReasonForCandidate(
   platform: Platform,
   followers: number,
+  measurementKind: CollectResult["measurement_kind"] | SnapshotRecord["measurement_kind"],
   rawExcerpt: string | null | undefined,
   history: number[]
 ): RejectionReason | null {
+  if (measurementKind !== "exact") {
+    return null;
+  }
+
   if (platform === "instagram" && rawExcerpt && INSTAGRAM_WRONG_METRIC_PATTERN.test(rawExcerpt)) {
     return {
       error_code: "suspicious_metric_context",
@@ -94,6 +104,7 @@ export function sanitizeSnapshotsForAccount(
     const reason = rejectionReasonForCandidate(
       platform,
       snapshot.followers,
+      snapshot.measurement_kind,
       snapshot.raw_excerpt,
       recentTrustedFollowers(trusted)
     );
@@ -114,7 +125,13 @@ export function sanitizeCollectedResult(
   }
 
   const trustedHistory = recentTrustedFollowers(sanitizeSnapshotsForAccount(platform, recentSnapshotsAsc));
-  const reason = rejectionReasonForCandidate(platform, result.followers, result.raw_excerpt, trustedHistory);
+  const reason = rejectionReasonForCandidate(
+    platform,
+    result.followers,
+    result.measurement_kind,
+    result.raw_excerpt,
+    trustedHistory
+  );
 
   if (!reason) {
     return result;

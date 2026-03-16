@@ -19,6 +19,12 @@ export function initDb(dbPath = DEFAULT_DB_PATH): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(readFileSync(path.resolve("collector/db/schema.sql"), "utf8"));
+  const snapshotColumns = db
+    .prepare("PRAGMA table_info(snapshots)")
+    .all() as Array<{ name: string }>;
+  if (!snapshotColumns.some((column) => column.name === "measurement_kind")) {
+    db.exec("ALTER TABLE snapshots ADD COLUMN measurement_kind TEXT NOT NULL DEFAULT 'exact'");
+  }
   return db;
 }
 
@@ -48,14 +54,15 @@ export function syncAccounts(db: Database.Database, accounts: AccountConfig[]): 
 export function upsertSnapshot(db: Database.Database, snapshot: SnapshotInput): void {
   db.prepare(`
     INSERT INTO snapshots (
-      account_id, date, followers, method, confidence, status,
+      account_id, date, followers, measurement_kind, method, confidence, status,
       error_code, error_message, raw_excerpt, collected_at
     ) VALUES (
-      @account_id, @date, @followers, @method, @confidence, @status,
+      @account_id, @date, @followers, @measurement_kind, @method, @confidence, @status,
       @error_code, @error_message, @raw_excerpt, @collected_at
     )
     ON CONFLICT(account_id, date) DO UPDATE SET
       followers = excluded.followers,
+      measurement_kind = excluded.measurement_kind,
       method = excluded.method,
       confidence = excluded.confidence,
       status = excluded.status,
@@ -90,7 +97,7 @@ export function listSnapshotsForAccount(
 ): SnapshotRecord[] {
   return db
     .prepare(
-      `SELECT id, account_id, date, followers, method, confidence, status,
+      `SELECT id, account_id, date, followers, measurement_kind, method, confidence, status,
               error_code, error_message, raw_excerpt, collected_at
        FROM snapshots
        WHERE account_id = ?
@@ -107,7 +114,7 @@ export function listSnapshotsForAccountSince(
 ): SnapshotRecord[] {
   return db
     .prepare(
-      `SELECT id, account_id, date, followers, method, confidence, status,
+      `SELECT id, account_id, date, followers, measurement_kind, method, confidence, status,
               error_code, error_message, raw_excerpt, collected_at
        FROM snapshots
        WHERE account_id = ? AND date >= ?
@@ -119,7 +126,7 @@ export function listSnapshotsForAccountSince(
 export function getLatestSnapshot(db: Database.Database, accountId: string): SnapshotRecord | undefined {
   return db
     .prepare(
-      `SELECT id, account_id, date, followers, method, confidence, status,
+      `SELECT id, account_id, date, followers, measurement_kind, method, confidence, status,
               error_code, error_message, raw_excerpt, collected_at
        FROM snapshots
        WHERE account_id = ?
@@ -136,7 +143,7 @@ export function getPreviousSnapshot(
 ): SnapshotRecord | undefined {
   return db
     .prepare(
-      `SELECT id, account_id, date, followers, method, confidence, status,
+      `SELECT id, account_id, date, followers, measurement_kind, method, confidence, status,
               error_code, error_message, raw_excerpt, collected_at
        FROM snapshots
        WHERE account_id = ? AND date < ?
@@ -153,7 +160,7 @@ export function getSnapshotOnOrBefore(
 ): SnapshotRecord | undefined {
   return db
     .prepare(
-      `SELECT id, account_id, date, followers, method, confidence, status,
+      `SELECT id, account_id, date, followers, measurement_kind, method, confidence, status,
               error_code, error_message, raw_excerpt, collected_at
        FROM snapshots
        WHERE account_id = ? AND date <= ?

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
   account_id TEXT NOT NULL,
   date TEXT NOT NULL,
   followers INTEGER NULL,
+  measurement_kind TEXT NOT NULL DEFAULT 'exact',
   method TEXT NOT NULL,
   confidence TEXT NOT NULL,
   status TEXT NOT NULL,

@@ -5,7 +5,16 @@ import { Platform, SnapshotRecord } from "./types.js";
 import { bangkokDate, bangkokDateMinusDays } from "./utils/time.js";
 
 function diffFollowers(a?: SnapshotRecord, b?: SnapshotRecord): number | null {
-  if (!a || !b || a.followers === null || b.followers === null) {
+  if (
+    !a ||
+    !b ||
+    a.followers === null ||
+    b.followers === null ||
+    a.status !== "ok" ||
+    b.status !== "ok" ||
+    a.measurement_kind !== "exact" ||
+    b.measurement_kind !== "exact"
+  ) {
     return null;
   }
   return a.followers - b.followers;
@@ -23,6 +32,14 @@ function formatNumber(value: number | null): string {
     return "-";
   }
   return value.toLocaleString();
+}
+
+function formatFollowers(value: number | null, measurementKind: SnapshotRecord["measurement_kind"]): string {
+  if (value === null) {
+    return "n/a";
+  }
+  const rendered = formatNumber(value);
+  return measurementKind === "lower_bound" ? `>=${rendered}` : rendered;
 }
 
 function formatDelta(value: number | null): string {
@@ -137,6 +154,7 @@ export async function runSummary(): Promise<void> {
         enabled: account.enabled === 1,
         latest_date: latest?.date ?? "-",
         followers: latest?.followers ?? null,
+        measurement_kind: latest?.measurement_kind ?? "exact",
         delta_1d,
         delta_7d,
         delta_30d,
@@ -153,6 +171,9 @@ export async function runSummary(): Promise<void> {
       accounts_total: rows.length,
       enabled_accounts: rows.filter((row) => row.enabled).length,
       total_followers: rows.reduce((sum, row) => sum + (row.followers ?? 0), 0),
+      total_followers_is_lower_bound: rows.some(
+        (row) => row.followers !== null && row.measurement_kind === "lower_bound"
+      ),
       total_delta_1d: rows.reduce((sum, row) => sum + (row.delta_1d ?? 0), 0),
       total_delta_7d: rows.reduce((sum, row) => sum + (row.delta_7d ?? 0), 0),
       missing_today: rows.filter((row) => row.missing_today).length,
@@ -162,14 +183,13 @@ export async function runSummary(): Promise<void> {
     console.log("");
     console.log(`Summary ${aggregate.date}`);
     console.log(
-      `All Accounts - ${formatNumber(aggregate.total_followers)} - ${formatAggregateTrend(
+      `All Accounts - ${aggregate.total_followers_is_lower_bound ? `>=${formatNumber(aggregate.total_followers)}` : formatNumber(aggregate.total_followers)} - ${formatAggregateTrend(
         aggregate.total_delta_7d
       )} | failed:${aggregate.failed_today} missing:${aggregate.missing_today}`
     );
     for (const row of rows) {
-      const followersText = row.followers === null ? "n/a" : formatNumber(row.followers);
       console.log(
-        `${row.label} - ${followersText} - ${formatTrend(
+        `${row.label} - ${formatFollowers(row.followers, row.measurement_kind)} - ${formatTrend(
           row.status,
           row.delta_7d,
           row.pct_7d,

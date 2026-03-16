@@ -3,6 +3,7 @@ export interface Snapshot {
   account_id: string;
   date: string;
   followers: number | null;
+  measurement_kind: "exact" | "lower_bound";
   method: "html" | "playwright";
   confidence: "high" | "medium" | "low";
   status: "ok" | "failed";
@@ -47,6 +48,7 @@ export interface ComparisonSeries {
   followers_key: string;
   index_key: string;
   latest_followers: number | null;
+  latest_measurement_kind: "exact" | "lower_bound";
   delta: number | null;
   pct_change: number | null;
 }
