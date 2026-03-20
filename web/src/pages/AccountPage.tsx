@@ -28,6 +28,10 @@ export function AccountPage(): JSX.Element {
   const [data, setData] = useState<AccountSnapshotsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [manualFollowers, setManualFollowers] = useState("");
+  const [savingManual, setSavingManual] = useState(false);
+  const [manualMessage, setManualMessage] = useState<string | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) {
@@ -49,6 +53,10 @@ export function AccountPage(): JSX.Element {
         const payload = (await response.json()) as AccountSnapshotsResponse;
         if (!cancelled) {
           setData(payload);
+          const latestSnapshot = payload.snapshots[payload.snapshots.length - 1];
+          if (latestSnapshot?.status === "ok" && latestSnapshot.followers !== null) {
+            setManualFollowers(String(latestSnapshot.followers));
+          }
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -91,6 +99,54 @@ export function AccountPage(): JSX.Element {
     return <p className="error">Failed to load: {error}</p>;
   }
 
+  async function submitManualFollowers(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    if (!id) {
+      return;
+    }
+
+    const parsed = Number.parseInt(manualFollowers, 10);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      setManualError("Enter a non-negative whole number.");
+      setManualMessage(null);
+      return;
+    }
+
+    setSavingManual(true);
+    setManualError(null);
+    setManualMessage(null);
+
+    try {
+      const response = await fetch(`/api/accounts/${id}/manual-followers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ followers: parsed })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? `API returned ${response.status}`);
+      }
+
+      const refreshed = await fetch(`/api/accounts/${id}/snapshots?days=365`);
+      if (!refreshed.ok) {
+        throw new Error(`API returned ${refreshed.status}`);
+      }
+
+      const payload = (await refreshed.json()) as AccountSnapshotsResponse;
+      setData(payload);
+      setManualFollowers(String(parsed));
+      setManualMessage("Saved today’s follower count manually.");
+    } catch (saveError) {
+      setManualError(saveError instanceof Error ? saveError.message : "Failed to save manual followers");
+    } finally {
+      setSavingManual(false);
+    }
+  }
+
   return (
     <main className="page">
       <section className="panel panel-emphasis">
@@ -115,6 +171,37 @@ export function AccountPage(): JSX.Element {
             {data?.account.url}
           </a>
         </p>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">Manual Override</p>
+            <h3>Set Today&apos;s Followers</h3>
+          </div>
+        </div>
+        <form className="manual-form" onSubmit={submitManualFollowers}>
+          <label className="manual-form-field">
+            <span className="manual-form-label">Followers</span>
+            <input
+              className="manual-form-input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              type="text"
+              value={manualFollowers}
+              onChange={(event) => setManualFollowers(event.target.value.replace(/[^\d]/g, ""))}
+              placeholder="735"
+            />
+          </label>
+          <button className="manual-form-button" type="submit" disabled={savingManual}>
+            {savingManual ? "Saving..." : "Save Manual Count"}
+          </button>
+        </form>
+        <p className="account-secondary">
+          This writes an exact snapshot for today using <code>manual</code> as the collection method.
+        </p>
+        {manualMessage ? <p className="success-message">{manualMessage}</p> : null}
+        {manualError ? <p className="error">{manualError}</p> : null}
       </section>
 
       <section className="panel">

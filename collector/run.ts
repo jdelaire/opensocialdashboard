@@ -1,4 +1,5 @@
-import { Browser, chromium } from "playwright";
+import { Browser, BrowserContext, chromium } from "playwright";
+import { ensureLocalAuthProfile, hasAuthProfileSource } from "./authProfile.js";
 import { loadAccountsConfig } from "./config.js";
 import { getConnector } from "./connectors/index.js";
 import { initDb, listSnapshotsForAccount, syncAccounts, upsertSnapshot } from "./db/index.js";
@@ -61,6 +62,18 @@ function playwrightLaunchFailureResult(error: unknown): CollectResult {
   };
 }
 
+function authProfileFailureResult(error: unknown): CollectResult {
+  return {
+    followers: null,
+    measurement_kind: "exact",
+    method: "playwright",
+    confidence: "low",
+    status: "failed",
+    error_code: "auth_profile_unavailable",
+    error_message: error instanceof Error ? error.message : "Unable to prepare local auth profile"
+  };
+}
+
 function normalizeResult(result: CollectResult): CollectResult {
   const normalized: CollectResult = { ...result };
   if (result.raw_excerpt) {
@@ -69,60 +82,161 @@ function normalizeResult(result: CollectResult): CollectResult {
   return normalized;
 }
 
-async function collectWithPlaywright(account: AccountConfig): Promise<CollectResult> {
-  let browser: Browser | undefined;
-
-  try {
-    browser = await chromium.launch({ headless: true });
-  } catch (error) {
-    return playwrightLaunchFailureResult(error);
+function collectManualFollowers(account: AccountConfig): CollectResult | null {
+  if (account.manual_followers === undefined) {
+    return null;
   }
 
-  let lastResult: CollectResult | undefined;
+  return {
+    followers: account.manual_followers,
+    measurement_kind: "exact",
+    method: "manual",
+    confidence: "high",
+    status: "ok",
+    raw_excerpt: `manual_followers: ${account.manual_followers}`
+  };
+}
+
+function shouldUseConfiguredAuthProfile(account: AccountConfig): boolean {
+  return account.platform === "rednote" && hasAuthProfileSource(account);
+}
+
+function normalizeConfiguredAuthResult(account: AccountConfig, result: CollectResult): CollectResult {
+  if (!shouldUseConfiguredAuthProfile(account)) {
+    return result;
+  }
+
+  if (result.status === "ok" && result.measurement_kind === "exact") {
+    return result;
+  }
+
+  const excerpt = result.raw_excerpt;
+  if (result.status === "ok" && result.measurement_kind === "lower_bound") {
+    return {
+      followers: null,
+      measurement_kind: "exact",
+      method: "playwright",
+      confidence: "low",
+      status: "failed",
+      error_code: "auth_required",
+      error_message: "Configured Rednote auth profile no longer exposes exact follower data. Refresh the local copied profile.",
+      raw_excerpt: excerpt
+    };
+  }
+
+  if (result.error_code === "captcha") {
+    return {
+      followers: null,
+      measurement_kind: "exact",
+      method: "playwright",
+      confidence: "low",
+      status: "failed",
+      error_code: "auth_required",
+      error_message: "Configured Rednote auth profile is no longer usable. Refresh the local copied profile and sign in again if needed.",
+      raw_excerpt: excerpt
+    };
+  }
+
+  if (result.error_code === "extract_failed") {
+    return {
+      followers: null,
+      measurement_kind: "exact",
+      method: "playwright",
+      confidence: "low",
+      status: "failed",
+      error_code: "auth_required",
+      error_message: "Configured Rednote auth profile did not yield exact follower data. Refresh the local copied profile and sign in again if needed.",
+      raw_excerpt: excerpt
+    };
+  }
+
+  return result;
+}
+
+async function runConnectorInContext(
+  account: AccountConfig,
+  context: BrowserContext,
+  attempt: number
+): Promise<CollectResult> {
+  const connector = getConnector(account.platform);
+  const page = await context.newPage();
 
   try {
-    for (let attempt = 0; attempt < PLAYWRIGHT_MAX_ATTEMPTS; attempt += 1) {
-      const connector = getConnector(account.platform);
-      const context = await browser.newContext({
-        locale: "en-US"
-      });
-      const page = await context.newPage();
-
-      try {
-        const result = normalizeResult(await connector.collectViaPlaywright(account.url, page));
-        lastResult = result;
-        if (isRetryablePlaywrightResult(result) && attempt < PLAYWRIGHT_MAX_ATTEMPTS - 1) {
-          console.log(
-            `[collector] account=${account.id} retry attempt=${attempt + 2}/${PLAYWRIGHT_MAX_ATTEMPTS} error_code=${result.error_code ?? "unknown"}`
-          );
-          await waitBeforeRetry(attempt);
-          continue;
-        }
-        return result;
-      } finally {
-        await page.close().catch(() => undefined);
-        await context.close().catch(() => undefined);
-      }
-    }
-
-    return exhaustedRetryResult(
-      lastResult ?? {
-        followers: null,
-        measurement_kind: "exact",
-        method: "playwright",
-        confidence: "low",
-        status: "failed",
-        error_code: "playwright_retry_exhausted",
-        error_message: "Playwright retry exhausted without a result."
-      },
-      PLAYWRIGHT_MAX_ATTEMPTS
+    const result = normalizeConfiguredAuthResult(
+      account,
+      normalizeResult(await connector.collectViaPlaywright(account.url, page))
     );
+    if (isRetryablePlaywrightResult(result) && attempt < PLAYWRIGHT_MAX_ATTEMPTS - 1) {
+      console.log(
+        `[collector] account=${account.id} retry attempt=${attempt + 2}/${PLAYWRIGHT_MAX_ATTEMPTS} error_code=${result.error_code ?? "unknown"}`
+      );
+      await waitBeforeRetry(attempt);
+    }
+    return result;
   } finally {
-    await browser?.close();
+    await page.close().catch(() => undefined);
   }
 }
 
+async function collectWithPlaywright(account: AccountConfig): Promise<CollectResult> {
+  let lastResult: CollectResult | undefined;
+
+  for (let attempt = 0; attempt < PLAYWRIGHT_MAX_ATTEMPTS; attempt += 1) {
+    let browser: Browser | undefined;
+    let context: BrowserContext | undefined;
+
+    try {
+      if (shouldUseConfiguredAuthProfile(account)) {
+        const localProfilePath = ensureLocalAuthProfile(account);
+        context = await chromium.launchPersistentContext(localProfilePath, {
+          headless: true,
+          locale: "en-US"
+        });
+      } else {
+        browser = await chromium.launch({ headless: true });
+        context = await browser.newContext({
+          locale: "en-US"
+        });
+      }
+    } catch (error) {
+      return shouldUseConfiguredAuthProfile(account)
+        ? authProfileFailureResult(error)
+        : playwrightLaunchFailureResult(error);
+    }
+
+    try {
+      const result = await runConnectorInContext(account, context, attempt);
+      lastResult = result;
+      if (isRetryablePlaywrightResult(result) && attempt < PLAYWRIGHT_MAX_ATTEMPTS - 1) {
+        continue;
+      }
+      return result;
+    } finally {
+      await context?.close().catch(() => undefined);
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  return exhaustedRetryResult(
+    lastResult ?? {
+      followers: null,
+      measurement_kind: "exact",
+      method: "playwright",
+      confidence: "low",
+      status: "failed",
+      error_code: "playwright_retry_exhausted",
+      error_message: "Playwright retry exhausted without a result."
+    },
+    PLAYWRIGHT_MAX_ATTEMPTS
+  );
+}
+
 async function collectOne(account: AccountConfig): Promise<CollectResult> {
+  const manualResult = collectManualFollowers(account);
+  if (manualResult) {
+    return manualResult;
+  }
+
   const connector = getConnector(account.platform);
 
   if (!connector.supports(account.url)) {
@@ -135,6 +249,10 @@ async function collectOne(account: AccountConfig): Promise<CollectResult> {
       error_code: "unsupported_url",
       error_message: `URL is not supported for platform ${account.platform}`
     };
+  }
+
+  if (shouldUseConfiguredAuthProfile(account)) {
+    return collectWithPlaywright(account);
   }
 
   const htmlResult = normalizeResult(await connector.collectViaHtml(account.url));

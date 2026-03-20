@@ -11,6 +11,7 @@ coverage/
 .env
 .env.*
 !.env.example
+config/accounts.json
 
 *.log
 npm-debug.log*
@@ -22,6 +23,7 @@ collector.log
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/playwright-profiles/
 *.db
 *.db-shm
 *.db-wal

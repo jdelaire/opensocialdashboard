@@ -1,0 +1,39 @@
+[
+  {
+    "id": "yt-example",
+    "platform": "youtube",
+    "label": "YouTube - Example",
+    "url": "https://www.youtube.com/@example",
+    "enabled": true
+  },
+  {
+    "id": "ig-example",
+    "platform": "instagram",
+    "label": "Instagram - Example",
+    "url": "https://www.instagram.com/example",
+    "enabled": true
+  },
+  {
+    "id": "tt-example",
+    "platform": "tiktok",
+    "label": "TikTok - Example",
+    "url": "https://www.tiktok.com/@example",
+    "enabled": true
+  },
+  {
+    "id": "x-example",
+    "platform": "x",
+    "label": "X - Example",
+    "url": "https://x.com/example",
+    "enabled": true
+  },
+  {
+    "id": "rednote-example",
+    "platform": "rednote",
+    "label": "RedNote - Example",
+    "url": "https://www.xiaohongshu.com/user/profile/example",
+    "enabled": false,
+    "auth_profile_source_path": "/absolute/path/to/LoginInfo",
+    "manual_followers": 735
+  }
+]

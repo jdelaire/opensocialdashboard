@@ -4,7 +4,8 @@ import {
   initDb,
   listAccounts,
   listSnapshotsForAccount,
-  syncAccounts
+  syncAccounts,
+  upsertSnapshot
 } from "../collector/db/index.js";
 import { loadAccountsConfig } from "../collector/config.js";
 import { runCollection } from "../collector/run.js";
@@ -94,6 +95,13 @@ function parseDays(input: string | undefined): number {
   }
 
   return Math.min(parsed, 2000);
+}
+
+function parseManualFollowers(input: unknown): number | null {
+  if (typeof input !== "number" || !Number.isInteger(input) || input < 0) {
+    return null;
+  }
+  return input;
 }
 
 function diffFollowers(a?: SnapshotRecord, b?: SnapshotRecord): number | null {
@@ -362,6 +370,8 @@ app.get("/api/accounts/:id/snapshots", (req, res) => {
   try {
     const accountId = req.params.id;
     const days = parseDays(req.query.days as string | undefined);
+    const configAccounts = loadAccountsConfig();
+    syncAccounts(db, configAccounts);
     const account = getAccountById(db, accountId);
 
     if (!account) {
@@ -404,6 +414,49 @@ app.get("/api/accounts/:id/snapshots", (req, res) => {
         worst_day,
         growth_7d_rate
       }
+    });
+  } finally {
+    db.close();
+  }
+});
+
+app.post("/api/accounts/:id/manual-followers", (req, res) => {
+  const db = initDb();
+  try {
+    const accountId = req.params.id;
+    const configAccounts = loadAccountsConfig();
+    syncAccounts(db, configAccounts);
+
+    const account = getAccountById(db, accountId);
+    if (!account) {
+      res.status(404).json({ ok: false, error: "Account not found" });
+      return;
+    }
+
+    const followers = parseManualFollowers(req.body?.followers);
+    if (followers === null) {
+      res.status(400).json({ ok: false, error: "followers must be a non-negative integer" });
+      return;
+    }
+
+    const date = bangkokDate();
+    upsertSnapshot(db, {
+      account_id: accountId,
+      date,
+      followers,
+      measurement_kind: "exact",
+      method: "manual",
+      confidence: "high",
+      status: "ok",
+      raw_excerpt: `manual_followers: ${followers}`,
+      collected_at: new Date().toISOString()
+    });
+
+    res.json({
+      ok: true,
+      account_id: accountId,
+      date,
+      followers
     });
   } finally {
     db.close();

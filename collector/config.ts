@@ -23,6 +23,8 @@ export function loadAccountsConfig(configPath = path.resolve("config/accounts.js
     const label = candidate.label;
     const url = candidate.url;
     const enabled = candidate.enabled;
+    const authProfileSourcePath = candidate.auth_profile_source_path;
+    const manualFollowers = candidate.manual_followers;
 
     if (typeof id !== "string" || !id.trim()) {
       throw new Error(`Account at index ${index} has invalid id`);
@@ -39,13 +41,24 @@ export function loadAccountsConfig(configPath = path.resolve("config/accounts.js
     if (typeof enabled !== "boolean") {
       throw new Error(`Account ${id} has invalid enabled`);
     }
+    if (authProfileSourcePath !== undefined && (typeof authProfileSourcePath !== "string" || !authProfileSourcePath.trim())) {
+      throw new Error(`Account ${id} has invalid auth_profile_source_path`);
+    }
+    if (
+      manualFollowers !== undefined &&
+      (!Number.isInteger(manualFollowers) || (manualFollowers as number) < 0)
+    ) {
+      throw new Error(`Account ${id} has invalid manual_followers`);
+    }
 
     return {
       id,
       platform: platform as AccountConfig["platform"],
       label,
       url,
-      enabled
+      enabled,
+      auth_profile_source_path: authProfileSourcePath?.trim(),
+      manual_followers: manualFollowers as number | undefined
     };
   });
 }

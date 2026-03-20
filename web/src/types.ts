@@ -4,7 +4,7 @@ export interface Snapshot {
   date: string;
   followers: number | null;
   measurement_kind: "exact" | "lower_bound";
-  method: "html" | "playwright";
+  method: "html" | "playwright" | "manual";
   confidence: "high" | "medium" | "low";
   status: "ok" | "failed";
   error_code: string | null;

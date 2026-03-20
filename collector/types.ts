@@ -1,6 +1,6 @@
 export type Platform = "instagram" | "tiktok" | "rednote" | "youtube" | "x";
 
-export type CollectMethod = "html" | "playwright";
+export type CollectMethod = "html" | "playwright" | "manual";
 
 export type CollectConfidence = "high" | "medium" | "low";
 
@@ -14,6 +14,8 @@ export interface AccountConfig {
   label: string;
   url: string;
   enabled: boolean;
+  auth_profile_source_path?: string | undefined;
+  manual_followers?: number | undefined;
 }
 
 export interface CollectResult {

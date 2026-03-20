@@ -4,6 +4,10 @@ import { ComparisonCharts } from "../components/ComparisonCharts.js";
 import { PlatformIcon } from "../components/PlatformIcon.js";
 import { AccountOverviewRow, AccountsResponse, ComparisonResponse } from "../types.js";
 
+type DraftMap = Record<string, string>;
+type SavingMap = Record<string, boolean>;
+type MessageMap = Record<string, string | null>;
+
 function formatDelta(value: number | null): string {
   if (value === null) {
     return "-";
@@ -82,6 +86,11 @@ export function OverviewPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [manualDrafts, setManualDrafts] = useState<DraftMap>({});
+  const [manualSaving, setManualSaving] = useState<SavingMap>({});
+  const [manualMessages, setManualMessages] = useState<MessageMap>({});
+  const [manualErrors, setManualErrors] = useState<MessageMap>({});
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const hasLoadedInitialComparison = useRef(false);
 
   useEffect(() => {
@@ -171,6 +180,26 @@ export function OverviewPage(): JSX.Element {
     };
   }, [comparisonDays]);
 
+  useEffect(() => {
+    const rows = data?.accounts ?? [];
+    if (rows.length === 0) {
+      return;
+    }
+
+    setManualDrafts((current) => {
+      const next = { ...current };
+      for (const row of rows) {
+        if (next[row.account.id] !== undefined) {
+          continue;
+        }
+
+        const latestFollowers = row.latest?.followers;
+        next[row.account.id] = latestFollowers !== null && latestFollowers !== undefined ? String(latestFollowers) : "";
+      }
+      return next;
+    });
+  }, [data]);
+
   const sortedAccounts = useMemo(() => {
     const rows = data?.accounts ?? [];
     return [...rows].sort((a, b) => (b.derived.delta_7d ?? Number.NEGATIVE_INFINITY) - (a.derived.delta_7d ?? Number.NEGATIVE_INFINITY));
@@ -205,6 +234,69 @@ export function OverviewPage(): JSX.Element {
 
   if (error) {
     return <p className="error">Failed to load: {error}</p>;
+  }
+
+  async function refreshDashboardData(): Promise<void> {
+    const [accountsResponse, comparisonResponse] = await Promise.all([
+      fetch("/api/accounts"),
+      fetch(`/api/comparison?days=${comparisonDays}`)
+    ]);
+
+    if (!accountsResponse.ok) {
+      throw new Error(`Accounts API returned ${accountsResponse.status}`);
+    }
+    if (!comparisonResponse.ok) {
+      throw new Error(`Comparison API returned ${comparisonResponse.status}`);
+    }
+
+    const [accountsPayload, comparisonPayload] = (await Promise.all([
+      accountsResponse.json(),
+      comparisonResponse.json()
+    ])) as [AccountsResponse, ComparisonResponse];
+
+    setData(accountsPayload);
+    setComparison(comparisonPayload);
+  }
+
+  async function saveManualFollowers(accountId: string): Promise<void> {
+    const rawValue = manualDrafts[accountId] ?? "";
+    const parsed = Number.parseInt(rawValue, 10);
+
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      setManualErrors((current) => ({ ...current, [accountId]: "Enter a non-negative whole number." }));
+      setManualMessages((current) => ({ ...current, [accountId]: null }));
+      return;
+    }
+
+    setManualSaving((current) => ({ ...current, [accountId]: true }));
+    setManualErrors((current) => ({ ...current, [accountId]: null }));
+    setManualMessages((current) => ({ ...current, [accountId]: null }));
+
+    try {
+      const response = await fetch(`/api/accounts/${accountId}/manual-followers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ followers: parsed })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? `API returned ${response.status}`);
+      }
+
+      await refreshDashboardData();
+      setManualMessages((current) => ({ ...current, [accountId]: "Saved" }));
+      setEditingAccountId(null);
+    } catch (saveError) {
+      setManualErrors((current) => ({
+        ...current,
+        [accountId]: saveError instanceof Error ? saveError.message : "Failed to save manual followers"
+      }));
+    } finally {
+      setManualSaving((current) => ({ ...current, [accountId]: false }));
+    }
   }
 
   return (
@@ -286,7 +378,79 @@ export function OverviewPage(): JSX.Element {
                         </div>
                       </div>
                     </td>
-                    <td>{formatFollowerCount(row.latest?.followers ?? null, row.latest?.measurement_kind ?? "exact")}</td>
+                    <td>
+                      <div className="leaderboard-followers-cell">
+                        {editingAccountId === row.account.id ? (
+                          <div className="leaderboard-inline-editor">
+                            <input
+                              className="leaderboard-inline-input"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              type="text"
+                              value={manualDrafts[row.account.id] ?? ""}
+                              onChange={(event) =>
+                                setManualDrafts((current) => ({
+                                  ...current,
+                                  [row.account.id]: event.target.value.replace(/[^\d]/g, "")
+                                }))
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void saveManualFollowers(row.account.id);
+                                }
+                                if (event.key === "Escape") {
+                                  setEditingAccountId(null);
+                                  setManualErrors((current) => ({ ...current, [row.account.id]: null }));
+                                  setManualMessages((current) => ({ ...current, [row.account.id]: null }));
+                                }
+                              }}
+                              placeholder="Manual"
+                              aria-label={`Manual followers for ${row.account.label}`}
+                              autoFocus
+                            />
+                            <button
+                              className="leaderboard-inline-button"
+                              type="button"
+                              disabled={manualSaving[row.account.id] === true}
+                              onClick={() => void saveManualFollowers(row.account.id)}
+                            >
+                              {manualSaving[row.account.id] === true ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              className="leaderboard-inline-button leaderboard-inline-button-secondary"
+                              type="button"
+                              disabled={manualSaving[row.account.id] === true}
+                              onClick={() => {
+                                setEditingAccountId(null);
+                                setManualErrors((current) => ({ ...current, [row.account.id]: null }));
+                                setManualMessages((current) => ({ ...current, [row.account.id]: null }));
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="leaderboard-followers-trigger"
+                            type="button"
+                            onClick={() => {
+                              setEditingAccountId(row.account.id);
+                              setManualErrors((current) => ({ ...current, [row.account.id]: null }));
+                              setManualMessages((current) => ({ ...current, [row.account.id]: null }));
+                            }}
+                          >
+                            {formatFollowerCount(row.latest?.followers ?? null, row.latest?.measurement_kind ?? "exact")}
+                          </button>
+                        )}
+                        {manualMessages[row.account.id] ? (
+                          <div className="leaderboard-inline-success">{manualMessages[row.account.id]}</div>
+                        ) : null}
+                        {manualErrors[row.account.id] ? (
+                          <div className="leaderboard-inline-error">{manualErrors[row.account.id]}</div>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className={deltaClass(row.derived.delta_1d)}>{formatDelta(row.derived.delta_1d)}</td>
                     <td className={deltaClass(row.derived.delta_7d)}>{formatDelta(row.derived.delta_7d)}</td>
                     <td className={deltaClass(row.derived.pct_7d)}>{formatPct(row.derived.pct_7d)}</td>
