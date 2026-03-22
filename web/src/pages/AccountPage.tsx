@@ -23,6 +23,18 @@ function statusClass(status: "ok" | "failed"): string {
   return status === "ok" ? "status-ok" : "status-failed";
 }
 
+function formatRefreshTimestamp(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(timestamp);
+}
+
 export function AccountPage(): JSX.Element {
   const { id } = useParams();
   const [data, setData] = useState<AccountSnapshotsResponse | null>(null);
@@ -86,6 +98,22 @@ export function AccountPage(): JSX.Element {
     () => (data?.snapshots ?? []).some((snapshot) => snapshot.measurement_kind === "lower_bound" && snapshot.followers !== null),
     [data]
   );
+  const lastRefreshLabel = useMemo(() => {
+    const snapshots = data?.snapshots ?? [];
+    let latestCollectedAt: string | null = null;
+
+    for (const snapshot of snapshots) {
+      if (!snapshot.collected_at) {
+        continue;
+      }
+
+      if (!latestCollectedAt || snapshot.collected_at > latestCollectedAt) {
+        latestCollectedAt = snapshot.collected_at;
+      }
+    }
+
+    return latestCollectedAt ? formatRefreshTimestamp(latestCollectedAt) : null;
+  }, [data]);
 
   if (!id) {
     return <p className="error">Missing account id.</p>;
@@ -163,7 +191,10 @@ export function AccountPage(): JSX.Element {
               <h2>{data?.account.label}</h2>
             </div>
           </div>
-          <div className="section-meta">365 Day View</div>
+          <div className="section-meta-group">
+            <div className="section-meta">365 Day View</div>
+            <div className="section-submeta">{lastRefreshLabel ? `Last refresh ${lastRefreshLabel}` : "No refresh recorded yet"}</div>
+          </div>
         </div>
         <p className="account-secondary">
           {data?.account.platform} |{" "}

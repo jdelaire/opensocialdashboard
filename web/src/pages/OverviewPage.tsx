@@ -79,6 +79,18 @@ function extractAccountName(url: string): string | null {
   }
 }
 
+function formatRefreshTimestamp(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(timestamp);
+}
+
 export function OverviewPage(): JSX.Element {
   const [data, setData] = useState<AccountsResponse | null>(null);
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
@@ -227,6 +239,23 @@ export function OverviewPage(): JSX.Element {
       missingToday: data?.missing_today.length ?? 0
     };
   }, [data]);
+  const lastRefreshLabel = useMemo(() => {
+    const rows = data?.accounts ?? [];
+    let latestCollectedAt: string | null = null;
+
+    for (const row of rows) {
+      const collectedAt = row.latest?.collected_at;
+      if (!collectedAt) {
+        continue;
+      }
+
+      if (!latestCollectedAt || collectedAt > latestCollectedAt) {
+        latestCollectedAt = collectedAt;
+      }
+    }
+
+    return latestCollectedAt ? formatRefreshTimestamp(latestCollectedAt) : null;
+  }, [data]);
 
   if (loading) {
     return <p>Loading account overview...</p>;
@@ -308,7 +337,10 @@ export function OverviewPage(): JSX.Element {
             <h2>Network Snapshot</h2>
             <p className="section-summary">A compact read on total audience, short-term momentum, and collection health across every tracked profile.</p>
           </div>
-          <div className="section-meta">{data?.date}</div>
+          <div className="section-meta-group">
+            <div className="section-meta">{data?.date}</div>
+            <div className="section-submeta">{lastRefreshLabel ? `Last refresh ${lastRefreshLabel}` : "No refresh recorded yet"}</div>
+          </div>
         </div>
         <div className="stats-grid">
           <div className="stat-card">

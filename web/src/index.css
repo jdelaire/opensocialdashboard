@@ -234,6 +234,19 @@ h3 {
   font-weight: 600;
 }
 
+.section-meta-group {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.section-submeta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  text-align: right;
+}
+
 .segmented-control {
   display: inline-flex;
   align-items: center;
@@ -834,6 +847,14 @@ a:hover {
   .section-heading {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .section-meta-group {
+    justify-items: start;
+  }
+
+  .section-submeta {
+    text-align: left;
   }
 
   .segmented-control {
