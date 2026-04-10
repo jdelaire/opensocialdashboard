@@ -98,7 +98,24 @@ function collectManualFollowers(account: AccountConfig): CollectResult | null {
 }
 
 function shouldUseConfiguredAuthProfile(account: AccountConfig): boolean {
-  return account.platform === "rednote" && hasAuthProfileSource(account);
+  return hasAuthProfileSource(account);
+}
+
+function platformLabel(platform: AccountConfig["platform"]): string {
+  switch (platform) {
+    case "instagram":
+      return "Instagram";
+    case "tiktok":
+      return "TikTok";
+    case "rednote":
+      return "RedNote";
+    case "youtube":
+      return "YouTube";
+    case "x":
+      return "X";
+    default:
+      return platform;
+  }
 }
 
 function normalizeConfiguredAuthResult(account: AccountConfig, result: CollectResult): CollectResult {
@@ -110,6 +127,7 @@ function normalizeConfiguredAuthResult(account: AccountConfig, result: CollectRe
     return result;
   }
 
+  const label = platformLabel(account.platform);
   const excerpt = result.raw_excerpt;
   if (result.status === "ok" && result.measurement_kind === "lower_bound") {
     return {
@@ -119,12 +137,12 @@ function normalizeConfiguredAuthResult(account: AccountConfig, result: CollectRe
       confidence: "low",
       status: "failed",
       error_code: "auth_required",
-      error_message: "Configured Rednote auth profile no longer exposes exact follower data. Refresh the local copied profile.",
+      error_message: `Configured ${label} auth profile no longer exposes exact follower data. Refresh the local copied profile.`,
       raw_excerpt: excerpt
     };
   }
 
-  if (result.error_code === "captcha") {
+  if (result.error_code === "captcha" || result.error_code === "auth_required") {
     return {
       followers: null,
       measurement_kind: "exact",
@@ -132,7 +150,7 @@ function normalizeConfiguredAuthResult(account: AccountConfig, result: CollectRe
       confidence: "low",
       status: "failed",
       error_code: "auth_required",
-      error_message: "Configured Rednote auth profile is no longer usable. Refresh the local copied profile and sign in again if needed.",
+      error_message: `Configured ${label} auth profile is no longer usable. Refresh the local copied profile and sign in again if needed.`,
       raw_excerpt: excerpt
     };
   }
@@ -145,7 +163,7 @@ function normalizeConfiguredAuthResult(account: AccountConfig, result: CollectRe
       confidence: "low",
       status: "failed",
       error_code: "auth_required",
-      error_message: "Configured Rednote auth profile did not yield exact follower data. Refresh the local copied profile and sign in again if needed.",
+      error_message: `Configured ${label} auth profile did not yield exact follower data. Refresh the local copied profile and sign in again if needed.`,
       raw_excerpt: excerpt
     };
   }

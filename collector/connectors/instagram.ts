@@ -15,6 +15,16 @@ import {
 
 const KEYWORDS = ["followers", "follower"];
 
+function detectInstagramLoginWall(input: string): boolean {
+  const text = input.toLowerCase();
+  return (
+    (text.includes("log into instagram") &&
+      text.includes("mobile number, username or email") &&
+      text.includes("password")) ||
+    (text.includes("see everyday moments from your close friends") && text.includes("create new account"))
+  );
+}
+
 async function extractInstagramFollowersFromPage(page: Page): Promise<Candidate | null> {
   const selectorPlans = [
     { selector: "a[href$='/followers/']", allowDirect: true },
@@ -76,6 +86,15 @@ async function extractInstagramFollowersWithSnapshot(
 ): Promise<CollectResult> {
   if (detectBlockOrCaptcha(`${bodyText}\n${html}`)) {
     return failed("playwright", "captcha", "Captcha or bot challenge detected in browser response.");
+  }
+
+  if (detectInstagramLoginWall(bodyText)) {
+    return failed(
+      "playwright",
+      "auth_required",
+      "Instagram served a login wall instead of the public profile. Use an authenticated profile or retry from a different network.",
+      bodyText
+    );
   }
 
   const fromSelectors = await extractInstagramFollowersFromPage(page);

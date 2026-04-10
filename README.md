@@ -42,7 +42,7 @@ By default dev mode uses `APP_API_PORT=8790` for API + Vite proxy consistency.
 - `label` string
 - `url` string
 - `enabled` boolean
-- `auth_profile_source_path` optional string path to a Chromium user-data directory to seed a dashboard-local Playwright profile copy. Currently intended for Rednote accounts that need an authenticated session.
+- `auth_profile_source_path` optional string path to a Chromium user-data directory to seed a dashboard-local Playwright profile copy. Use it for platforms that need an authenticated session in Playwright, such as RedNote or Instagram when Meta serves a login wall.
 - `manual_followers` optional integer to bypass collection and store an exact follower count manually for that account.
 
 Use `config/accounts.json.example` as the committed template and keep your real `config/accounts.json` local-only.
@@ -55,9 +55,9 @@ Use `config/accounts.json.example` as the committed template and keep your real 
 - Writes exactly one snapshot per account per Bangkok day (`UNIQUE(account_id, date)` with upsert).
 - Detects block/captcha pages and records failed status with `error_code=captcha`.
 - Preserves lower-bound public counts (for example RedNote `1万+`) as `>=` values instead of dropping them entirely.
-- When a Rednote account defines `auth_profile_source_path`, the collector seeds a one-time local copy under `data/playwright-profiles/<account-id>` and uses that copied profile for Playwright collection.
-- If that copied Rednote session stops yielding exact follower data, collection records `error_code=auth_required` so the dashboard can signal that the local profile needs to be refreshed.
-- To reseed a Rednote auth profile copy, close the source browser/profile first, then delete `data/playwright-profiles/<account-id>` and rerun collection.
+- When an account defines `auth_profile_source_path`, the collector seeds a one-time local copy under `data/playwright-profiles/<account-id>` and uses that copied profile for Playwright collection.
+- If that copied authenticated session stops yielding exact follower data, collection records `error_code=auth_required` so the dashboard can signal that the local profile needs to be refreshed.
+- To reseed an auth profile copy, close the source browser/profile first, then delete `data/playwright-profiles/<account-id>` and rerun collection.
 - Keeps deltas and growth rates conservative: they only compute when both snapshots are exact counts.
 - API process includes an in-process auto-collector loop (every 24h) while running.
 - Auto-collector can be configured with:
@@ -93,7 +93,7 @@ Use cron if you want fixed wall-clock scheduling; the in-process loop runs every
     ```
 - `captcha` failures: platform is showing bot checks; collection stores failed snapshots by design.
 - `extract_failed`: selectors/text patterns did not produce a confident count; connector needs tuning.
-- `auth_required`: the copied authenticated browser profile is no longer usable for Rednote; refresh or reseed the local profile copy.
+- `auth_required`: the platform served a login wall or the copied authenticated browser profile is no longer usable; refresh or reseed the local profile copy.
 - `playwright_failed`: install browser binaries:
   ```bash
   npx playwright install chromium
